@@ -1,8 +1,17 @@
 name: Daily Digest Scheduler
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Bypass time window (1=yes, 0=no)'
+        required: false
+        default: '0'
+      target_email:
+        description: 'Only send to this email (optional)'
+        required: false
+        default: ''
 
 jobs:
   run:
@@ -25,4 +34,6 @@ jobs:
           TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          FORCE_SEND: ${{ github.event.inputs.force }}
+          TARGET_EMAIL: ${{ github.event.inputs.target_email }}
         run: node index.js
