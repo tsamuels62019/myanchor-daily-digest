@@ -1,0 +1,12 @@
+{
+  "name": "daily-digest-sender",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "node-fetch": "^3.0.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
