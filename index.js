@@ -1,12 +1,16 @@
 import fetch from 'node-fetch';
 import { createClient } from '@supabase/supabase-js';
 
-// env vars (set these as GitHub Secrets)
+// env vars (set in GitHub Actions)
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
+
+// testing controls
+const FORCE_SEND = process.env.FORCE_SEND === '1';              // bypass 7:00-7:05 window if '1'
+const TARGET_EMAIL = process.env.TARGET_EMAIL || '';            // if set, only send to this email
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
   console.error('Missing Supabase envs. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE');
@@ -67,10 +71,20 @@ async function sendTwilioSms(to, body) {
 }
 
 async function main() {
-  console.log('Starting daily digest run', new Date().toISOString());
+  console.log('Starting daily digest run', new Date().toISOString(), { FORCE_SEND, TARGET_EMAIL });
 
+  // create a job_runs row
+  const { data: jrCreate, error: jrErr } = await supabase
+    .from('job_runs')
+    .insert([{ job_name: 'daily_digest_sms', started_at: new Date().toISOString() }])
+    .select('*')
+    .single();
+
+  if (jrErr) console.warn('Could not create job_runs row:', jrErr.message);
+
+  // fetch users who consented
   const { data: users, error } = await supabase
-    .from('users')
+    .from('users') // this is the view we created
     .select('id, email, phone, timezone, sms_consent')
     .eq('sms_consent', true);
 
@@ -79,9 +93,15 @@ async function main() {
     process.exit(1);
   }
 
-  let attempted = 0, sent = 0, skipped = 0, errors = [];
+  // if TARGET_EMAIL is set, filter to that one user
+  const targetList = TARGET_EMAIL
+    ? users.filter(u => u.email && u.email.toLowerCase() === TARGET_EMAIL.toLowerCase())
+    : users;
 
-  for (const u of users) {
+  let attempted = 0, sent = 0, skipped = 0;
+  const errors = [];
+
+  for (const u of targetList) {
     attempted++;
     try {
       if (!u.timezone) {
@@ -97,7 +117,8 @@ async function main() {
         continue;
       }
 
-      if (!(lm.hour === 19 && lm.minute <= 5)) {
+      // unless FORCE_SEND, only send between 19:00 and 19:05 local time
+      if (!FORCE_SEND && !(lm.hour === 19 && lm.minute <= 5)) {
         skipped++;
         continue;
       }
@@ -116,14 +137,29 @@ async function main() {
         continue;
       }
 
-      const tw = await sendTwilioSms(u.phone, 'Your daily digest for tomorrow has been updated — open MyAnchor to prepare.');
-      await supabase.from('daily_digest_sms').insert([{ user_id: u.id, digest_date: today, sent_at: new Date().toISOString() }]);
+      const tw = await sendTwilioSms(u.phone, 'Your daily digest for tomorrow has been updated - open MyAnchor to prepare.');
+      await supabase
+        .from('daily_digest_sms')
+        .insert([{ user_id: u.id, digest_date: today, sent_at: new Date().toISOString() }]);
+
       sent++;
       console.log(`Sent to ${u.email} (${tw.sid})`);
     } catch (e) {
       console.error('Error for user', u.email, e.message);
       errors.push({ user: u.email, error: e.message });
     }
+  }
+
+  // update job_runs with results
+  if (jrCreate && jrCreate.id) {
+    await supabase
+      .from('job_runs')
+      .update({
+        finished_at: new Date().toISOString(),
+        attempted, sent, skipped,
+        details: { FORCE_SEND, TARGET_EMAIL, errors }
+      })
+      .eq('id', jrCreate.id);
   }
 
   console.log({ attempted, sent, skipped, errors });
