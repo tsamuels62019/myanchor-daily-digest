@@ -118,10 +118,12 @@ async function main() {
       }
 
       // unless FORCE_SEND, only send between 19:00 and 19:05 local time
-      if (!FORCE_SEND && !(lm.hour === 19 && lm.minute <= 5)) {
-        skipped++;
-        continue;
-      }
+      const inWindow = (lm.hour === 19 && lm.minute < 10); // 19:00–19:09 local
+if (!FORCE_SEND && !inWindow) {
+  skipped++;
+  continue;
+}
+
 
       const today = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(new Date());
       const { data: existing } = await supabase
