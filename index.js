@@ -111,19 +111,31 @@ async function main() {
       }
 
       const lm = getLocalHourMinute(u.timezone);
-      if (!lm) {
-        skipped++;
-        console.log(`Skipping ${u.email} - couldn't compute local time`);
-        continue;
-      }
-
-      // unless FORCE_SEND, only send between 19:00 and 19:05 local time
-      const inWindow = (lm.hour === 19 && lm.minute < 10); // 19:00–19:09 local
-if (!FORCE_SEND && !inWindow) {
+      // compute local time
+const lm = getLocalHourMinute(u.timezone);
+if (!lm) {
   skipped++;
+  errors.push({ user: u.email, reason: 'no_local_time' });
   continue;
 }
 
+// allow 19:00–19:14 local
+let inWindow = (lm.hour === 19 && lm.minute < 15);
+
+// small grace: if a run starts a bit late, still allow until 19:20 once
+if (!inWindow && !FORCE_SEND) {
+  const mins = lm.hour * 60 + lm.minute;
+  const lateBy = mins - (19 * 60);
+  if (lateBy >= 15 && lateBy < 21) inWindow = true;
+}
+
+if (!FORCE_SEND && !inWindow) {
+  skipped++;
+  // optional: collect why it skipped
+  if (!errors) errors = [];
+  errors.push({ user: u.email, reason: 'outside_window', time: `${lm.hour}:${String(lm.minute).padStart(2,'0')}` });
+  continue;
+}
 
       const today = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(new Date());
       const { data: existing } = await supabase
