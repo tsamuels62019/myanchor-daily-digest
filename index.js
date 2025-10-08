@@ -9,8 +9,8 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 
 // testing controls
-const FORCE_SEND = process.env.FORCE_SEND === '1';              // bypass 7:00-7:05 window if '1'
-const TARGET_EMAIL = process.env.TARGET_EMAIL || '';            // if set, only send to this email
+const FORCE_SEND = process.env.FORCE_SEND === '1';   // bypass 7:00 window if '1'
+const TARGET_EMAIL = process.env.TARGET_EMAIL || ''; // if set, only send to this email
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
   console.error('Missing Supabase envs. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE');
@@ -40,9 +40,17 @@ function getLocalHourMinute(timezone) {
     const hour = parseInt(parts.find(p => p.type === 'hour').value, 10);
     const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
     return { hour, minute };
-  } catch (e) {
+  } catch {
     return null;
   }
+}
+
+// True only when local time is within the 7:00–7:04 PM window
+function inSevenPmWindow(timezone, windowMinutes = 5) {
+  const lm = getLocalHourMinute(timezone);
+  if (!lm) return { ok: false, reason: 'no_local_time' };
+  const ok = lm.hour === 19 && lm.minute >= 0 && lm.minute < windowMinutes;
+  return { ok, time: `${lm.hour}:${String(lm.minute).padStart(2, '0')}` };
 }
 
 async function sendTwilioSms(to, body) {
@@ -84,7 +92,7 @@ async function main() {
 
   // fetch users who consented
   const { data: users, error } = await supabase
-    .from('users') // this is the view we created
+    .from('users') // view
     .select('id, email, phone, timezone, sms_consent')
     .eq('sms_consent', true);
 
@@ -106,44 +114,34 @@ async function main() {
     try {
       if (!u.timezone) {
         skipped++;
-        console.log(`Skipping ${u.email} - no timezone`);
+        errors.push({ user: u.email, reason: 'no_timezone' });
         continue;
       }
 
-      const lm = getLocalHourMinute(u.timezone);
-      // compute local time
-const lm = getLocalHourMinute(u.timezone);
-if (!lm) {
-  skipped++;
-  errors.push({ user: u.email, reason: 'no_local_time' });
-  continue;
-}
+      // Only send at 7:00 PM local time unless FORCE_SEND is set
+      if (!FORCE_SEND) {
+        const win = inSevenPmWindow(u.timezone, 5); // 7:00–7:04
+        if (!win.ok) {
+          skipped++;
+          errors.push({ user: u.email, reason: 'outside_window', time: win.time || 'n/a' });
+          continue;
+        }
+      }
 
-// allow 19:00–19:14 local
-let inWindow = (lm.hour === 19 && lm.minute < 15);
-
-// small grace: if a run starts a bit late, still allow until 19:20 once
-if (!inWindow && !FORCE_SEND) {
-  const mins = lm.hour * 60 + lm.minute;
-  const lateBy = mins - (19 * 60);
-  if (lateBy >= 15 && lateBy < 21) inWindow = true;
-}
-
-if (!FORCE_SEND && !inWindow) {
-  skipped++;
-  // optional: collect why it skipped
-  if (!errors) errors = [];
-  errors.push({ user: u.email, reason: 'outside_window', time: `${lm.hour}:${String(lm.minute).padStart(2,'0')}` });
-  continue;
-}
-
+      // Date for uniqueness in user's timezone (YYYY-MM-DD)
       const today = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(new Date());
-      const { data: existing } = await supabase
+
+      // idempotency: skip if already sent today
+      const { data: existing, error: existErr } = await supabase
         .from('daily_digest_sms')
         .select('id')
         .eq('user_id', u.id)
         .eq('digest_date', today)
         .limit(1);
+
+      if (existErr) {
+        throw new Error(`query_existing_failed: ${existErr.message}`);
+      }
 
       if (existing && existing.length > 0) {
         skipped++;
