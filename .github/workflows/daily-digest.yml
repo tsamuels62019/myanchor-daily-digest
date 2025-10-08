@@ -1,17 +1,20 @@
 name: Daily Digest Scheduler
+
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    # Runs once every hour, top of the hour (UTC)
+    # The script itself decides who gets a 7:00 PM local send.
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       force:
-        description: 'Bypass time window (1=yes, 0=no)'
+        description: "Bypass time window (1=yes, 0=no)"
         required: false
-        default: '0'
+        default: "0"
       target_email:
-        description: 'Only send to this email (optional)'
+        description: "Only send to this email (optional)"
         required: false
-        default: ''
+        default: ""
 
 jobs:
   run:
@@ -22,7 +25,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install
         run: npm install
