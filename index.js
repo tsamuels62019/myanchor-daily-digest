@@ -123,9 +123,9 @@ async function main() {
         continue;
       }
 
-      // Only send between 8:06 PM and 8:10 PM local time unless FORCE_SEND is set
+      // Only send between 8:15 PM and 8:20 PM local time unless FORCE_SEND is set
       if (!FORCE_SEND) {
-        const win = inLocalWindow(u.timezone, 18, 52, 19, 8); // 8:06–8:10
+        const win = inLocalWindow(u.timezone, 18, 52, 19, 8); // 8:15–8:20
         if (!win.ok) {
           skipped++;
           errors.push({ user: u.email, reason: 'outside_window', time: win.time || 'n/a' });
