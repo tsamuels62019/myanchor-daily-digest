@@ -9,7 +9,7 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 
 // testing controls
-const FORCE_SEND = process.env.FORCE_SEND === '1';   // bypass 7:00 window if '1'
+const FORCE_SEND = process.env.FORCE_SEND === '1';   // bypass time window if '1'
 const TARGET_EMAIL = process.env.TARGET_EMAIL || ''; // if set, only send to this email
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
@@ -45,11 +45,16 @@ function getLocalHourMinute(timezone) {
   }
 }
 
-// True only when local time is within the 7:00–7:04 PM window
-function inSevenPmWindow(timezone, windowMinutes = 5) {
+// Return ok=true if current local time is between start and end (inclusive)
+function inLocalWindow(timezone, startHour, startMinute, endHour, endMinute) {
   const lm = getLocalHourMinute(timezone);
   if (!lm) return { ok: false, reason: 'no_local_time' };
-  const ok = lm.hour === 19 && lm.minute >= 0 && lm.minute < windowMinutes;
+
+  const currentMins = lm.hour * 60 + lm.minute;
+  const startMins = startHour * 60 + startMinute;
+  const endMins = endHour * 60 + endMinute;
+
+  const ok = currentMins >= startMins && currentMins <= endMins;
   return { ok, time: `${lm.hour}:${String(lm.minute).padStart(2, '0')}` };
 }
 
@@ -118,9 +123,9 @@ async function main() {
         continue;
       }
 
-      // Only send at 7:00 PM local time unless FORCE_SEND is set
+      // Only send between 8:06 PM and 8:10 PM local time unless FORCE_SEND is set
       if (!FORCE_SEND) {
-        const win = inSevenPmWindow(u.timezone, 5); // 7:00–7:04
+        const win = inLocalWindow(u.timezone, 18, 52, 19, 8); // 8:06–8:10
         if (!win.ok) {
           skipped++;
           errors.push({ user: u.email, reason: 'outside_window', time: win.time || 'n/a' });
