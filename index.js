@@ -10,10 +10,10 @@ const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 
 // testing controls
 const FORCE_SEND = process.env.FORCE_SEND === '1';   // bypass time window if '1'
-const TARGET_EMAIL = process.env.TARGET_EMAIL || ''; // if set, only send to this email
+const TARGET_EMAIL = process.env.TARGET_EMAIL || ''; // optional single user
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
-  console.error('Missing Supabase envs. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE');
+  console.error('Missing Supabase envs.');
   process.exit(1);
 }
 
@@ -45,7 +45,7 @@ function getLocalHourMinute(timezone) {
   }
 }
 
-// Return ok=true if current local time is between start and end (inclusive)
+// Returns ok=true if current local time is between start and end (inclusive)
 function inLocalWindow(timezone, startHour, startMinute, endHour, endMinute) {
   const lm = getLocalHourMinute(timezone);
   if (!lm) return { ok: false, reason: 'no_local_time' };
@@ -86,16 +86,12 @@ async function sendTwilioSms(to, body) {
 async function main() {
   console.log('Starting daily digest run', new Date().toISOString(), { FORCE_SEND, TARGET_EMAIL });
 
-  // create a job_runs row
-  const { data: jrCreate, error: jrErr } = await supabase
+  const { data: jrCreate } = await supabase
     .from('job_runs')
     .insert([{ job_name: 'daily_digest_sms', started_at: new Date().toISOString() }])
     .select('*')
     .single();
 
-  if (jrErr) console.warn('Could not create job_runs row:', jrErr.message);
-
-  // fetch users who consented
   const { data: users, error } = await supabase
     .from('users')
     .select('id, email, phone, timezone, sms_consent')
@@ -122,9 +118,9 @@ async function main() {
         continue;
       }
 
-      // Only send between 8:23 PM and 8:28 PM local time unless FORCE_SEND is set
+      // Only send between 9:00 PM and 9:10 PM local time unless FORCE_SEND is set
       if (!FORCE_SEND) {
-        const win = inLocalWindow(u.timezone, 20, 23, 20, 28); // 8:23–8:28
+        const win = inLocalWindow(u.timezone, 21, 0, 21, 10); // 9:00–9:10 PM local
         if (!win.ok) {
           skipped++;
           errors.push({ user: u.email, reason: 'outside_window', time: win.time || 'n/a' });
@@ -133,14 +129,12 @@ async function main() {
       }
 
       const today = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(new Date());
-      const { data: existing, error: existErr } = await supabase
+      const { data: existing } = await supabase
         .from('daily_digest_sms')
         .select('id')
         .eq('user_id', u.id)
         .eq('digest_date', today)
         .limit(1);
-
-      if (existErr) throw new Error(`query_existing_failed: ${existErr.message}`);
 
       if (existing && existing.length > 0) {
         skipped++;
