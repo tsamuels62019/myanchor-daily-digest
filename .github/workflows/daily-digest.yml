@@ -2,9 +2,9 @@ name: Daily Digest Scheduler
 
 on:
   schedule:
-    # Runs once every hour, top of the hour (UTC)
-    # The script itself decides who gets a 7:00 PM local send.
-    - cron: "0 * * * *"
+    # Run at minutes 15 through 20 each hour (UTC).
+    # Minutes line up across time zones, so this will also cover local 8:15–8:20.
+    - cron: "15-20 * * * *"
   workflow_dispatch:
     inputs:
       force:
