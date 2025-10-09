@@ -97,7 +97,7 @@ async function main() {
 
   // fetch users who consented
   const { data: users, error } = await supabase
-    .from('users') // view
+    .from('users')
     .select('id, email, phone, timezone, sms_consent')
     .eq('sms_consent', true);
 
@@ -106,7 +106,6 @@ async function main() {
     process.exit(1);
   }
 
-  // if TARGET_EMAIL is set, filter to that one user
   const targetList = TARGET_EMAIL
     ? users.filter(u => u.email && u.email.toLowerCase() === TARGET_EMAIL.toLowerCase())
     : users;
@@ -123,9 +122,9 @@ async function main() {
         continue;
       }
 
-      // Only send between 8:15 PM and 8:20 PM local time unless FORCE_SEND is set
+      // Only send between 8:23 PM and 8:28 PM local time unless FORCE_SEND is set
       if (!FORCE_SEND) {
-        const win = inLocalWindow(u.timezone, 18, 52, 19, 8); // 8:15–8:20
+        const win = inLocalWindow(u.timezone, 20, 23, 20, 28); // 8:23–8:28
         if (!win.ok) {
           skipped++;
           errors.push({ user: u.email, reason: 'outside_window', time: win.time || 'n/a' });
@@ -133,10 +132,7 @@ async function main() {
         }
       }
 
-      // Date for uniqueness in user's timezone (YYYY-MM-DD)
       const today = new Intl.DateTimeFormat('en-CA', { timeZone: u.timezone }).format(new Date());
-
-      // idempotency: skip if already sent today
       const { data: existing, error: existErr } = await supabase
         .from('daily_digest_sms')
         .select('id')
@@ -144,9 +140,7 @@ async function main() {
         .eq('digest_date', today)
         .limit(1);
 
-      if (existErr) {
-        throw new Error(`query_existing_failed: ${existErr.message}`);
-      }
+      if (existErr) throw new Error(`query_existing_failed: ${existErr.message}`);
 
       if (existing && existing.length > 0) {
         skipped++;
@@ -167,7 +161,6 @@ async function main() {
     }
   }
 
-  // update job_runs with results
   if (jrCreate && jrCreate.id) {
     await supabase
       .from('job_runs')
