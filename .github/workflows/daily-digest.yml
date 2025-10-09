@@ -2,7 +2,8 @@ name: Daily Digest Scheduler
 
 on:
   schedule:
-    - cron: "20 * * * *"  # runs at xx:20 every hour
+    # Runs at :55 every hour (so at 8:55 PM Central it kicks off, ready for 9:00–9:10 window)
+    - cron: "55 * * * *"
   workflow_dispatch:
     inputs:
       force:
